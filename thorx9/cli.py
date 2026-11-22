@@ -114,6 +114,9 @@ def cmd_show(a):
 
 def cmd_apply(a):
     p = apply_overrides(load_profile(a.profile), a)
+    if not p.has_left_click() and not a.force:
+        raise SystemExit("refusing: no button would be left click, so you couldn't click to undo it.\n"
+                         "(The vendor app enforces the same rule.) Use --force if you really mean it.")
     pkts = p.packets(P.DEFAULT_REPORT_LEN)
     with open_mouse(a) as m:
         m.send_all(pkts)
@@ -191,6 +194,73 @@ def cmd_listen(a):
     return 0
 
 
+EXPLORE_DEFAULTS = {"dpi": (0x0, 0xF), "led": (0x80, 0xBF), "func": (0x00, 0x1F)}
+
+
+def explore_steps(what, p: P.Profile, start, end, button):
+    """Yield (value, packet, note). Only parameters of known commands are varied."""
+    known_dpi = dict(zip(P.DPI_CODES, P.DPI_STEPS))
+    known_fn = {v: k for k, v in P.FUNCTIONS.items()}
+    known_led = {0x86: "static", 0x87: "off"}
+    known_led.update({0x80 | s: f"fixed, {6 - s}s" for s in range(6)})
+    known_led.update({0x90 | s: f"cyclic, {6 - s}s" for s in range(6)})
+    mask = sum(1 << i for i, l in enumerate(p.dpi_levels) if l.enabled) | 1
+    for v in range(start, end + 1):
+        if what == "dpi":
+            yield v, P.dpi_slot(0, v, 0, mask), f"{known_dpi[v]} DPI (known)" if v in known_dpi else "UNKNOWN"
+        elif what == "led":
+            yield v, P._pkt(P.CMD_LED, p.led_cycle_mask, v), known_led.get(v, "UNKNOWN")
+        else:
+            yield v, P.button(P.BUTTONS[button], v), known_fn.get(v, "UNKNOWN")
+
+
+def cmd_explore(a):
+    p = load_profile(a.profile)
+    start, end = EXPLORE_DEFAULTS[a.what]
+    start = start if a.start is None else a.start
+    end = end if a.end is None else a.end
+    if a.what == "func" and a.button == "left":
+        raise SystemExit("pick a button other than left for this")
+    hint = {"dpi": "DPI slot 1 is made active; move the mouse and compare speed.",
+            "led": "Watch the LEDs.",
+            "func": f"Press the '{a.button}' button and watch what happens."}[a.what]
+    print(f"{hint}\nEnter = next, b = back, n <note> = note it down, q = quit. "
+          "Your profile is restored at the end.", file=sys.stderr)
+    steps = list(explore_steps(a.what, p, start, end, a.button))
+    notes = {}
+    with open_mouse(a) as m:
+        try:
+            if a.what == "dpi":  # put slot 1 active so the change is felt immediately
+                m.send_all(P.Profile.from_dict({**p.to_dict(), "dpi": {**p.to_dict()["dpi"], "active": 0}}).packets())
+            i = 0
+            while 0 <= i < len(steps):
+                v, pkt, note = steps[i]
+                m.send(pkt)
+                for ev in m.events(timeout=0):  # drop stale events
+                    pass
+                ans = input(f"[{v:#04x}] {note:<20} sent {pkt[:5].hex(' ')} > ").strip()
+                for ev in m.events(timeout=0):
+                    print(f"    mouse reported: {ev.name} {'pressed' if ev.pressed else 'released'}")
+                if ans == "q":
+                    break
+                if ans == "b":
+                    i = max(0, i - 1)
+                    continue
+                if ans.startswith("n"):
+                    notes[v] = ans[1:].strip()
+                i += 1
+        except (KeyboardInterrupt, EOFError):
+            print()
+        finally:
+            m.send_all(p.packets())
+            print("profile restored", file=sys.stderr)
+    for v, n in notes.items():
+        print(f"{a.what} {v:#04x}: {n}")
+    if notes:
+        print("Please share these notes in an issue!", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="thorx9", description="Configure the FANTECH Thor X9 mouse.")
     ap.add_argument("--device", help="hidraw node to use (default: auto-detect)")
@@ -218,7 +288,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("apply", help="send a full configuration")
     profile_args(sp)
     sp.add_argument("--save", action="store_true", help="store the result as the default profile")
+    sp.add_argument("--force", action="store_true", help="allow a mapping without any left click")
     sp.set_defaults(fn=cmd_apply)
+
+    sp = sub.add_parser("explore", help="interactively test values the vendor app never uses")
+    sp.add_argument("what", choices=["dpi", "led", "func"])
+    sp.add_argument("-p", "--profile", help="profile to restore afterwards (default: your saved one)")
+    sp.add_argument("--button", default="dpi_minus", choices=list(P.BUTTONS),
+                    help="button to test functions on (func; default dpi_minus)")
+    sp.add_argument("--from", dest="start", type=_int, help="first value")
+    sp.add_argument("--to", dest="end", type=_int, help="last value")
+    sp.set_defaults(fn=cmd_explore)
 
     sp = sub.add_parser("show", help="print profile and the reports it produces")
     profile_args(sp)

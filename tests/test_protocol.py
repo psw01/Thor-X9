@@ -95,6 +95,19 @@ class ProtocolTest(unittest.TestCase):
         q = P.Profile.from_dict(p.to_dict())
         self.assertEqual(p.packets(), q.packets())
 
+    def test_ini_first_occurrence_wins(self):
+        # like the vendor [Config3]: K0 appears twice, Windows uses the first one
+        p = P.profile_from_vendor_ini(CONFIG1 + "K0=0\n", "Config1")
+        self.assertEqual(p.buttons["left"], "left")
+
+    def test_left_click_guard(self):
+        p = P.Profile()
+        self.assertTrue(p.has_left_click())
+        p.buttons["left"] = "fire"
+        self.assertFalse(p.has_left_click())
+        p.buttons["back"] = "left"
+        self.assertTrue(p.has_left_click())
+
     def test_led_modes(self):
         self.assertEqual(P.led("static")[:3], bytes([7, 0x13, 0x7F]) )
         self.assertEqual(P.led("static")[3], 0x86)

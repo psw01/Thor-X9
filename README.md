@@ -7,6 +7,7 @@ This repository has:
 * **`web/index.html`**: a WebHID page that configures the mouse from Chrome/Edge on any OS
 * **[docs/PROTOCOL.md](docs/PROTOCOL.md)**: the full USB protocol, with the vendor-binary address each fact came from
 * **[docs/SECURITY_ANALYSIS.md](docs/SECURITY_ANALYSIS.md)**: what the vendor app actually does (no evidence of spyware, but sloppy and over-privileged)
+* **[docs/HIDDEN_FEATURES.md](docs/HIDDEN_FEATURES.md)**: leftovers, hidden functions, and untested firmware values you can probe with `thorx9 explore`
 * **[docs/REVERSING.md](docs/REVERSING.md)**: how to reproduce the analysis
 
 > ⚠️ **Status: protocol recovered by static analysis, not yet tested on hardware.**
@@ -108,6 +109,13 @@ Raw experiments:
 ```bash
 thorx9 raw 07 13 7f 86
 ```
+
+Guided exploration of untested firmware values. It restores your profile afterwards; see [docs/HIDDEN_FEATURES.md](docs/HIDDEN_FEATURES.md):
+```bash
+thorx9 explore led --from 0x88 --to 0xbf
+```
+
+`apply` refuses a mapping where no button is left click, the same safety net as the vendor app. Pass `--force` to override.
 
 ## WebHID (browser)
 

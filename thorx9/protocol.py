@@ -293,6 +293,13 @@ class Profile:
             "fire_interval_ms": self.fire_interval_ms,
         }
 
+    def has_left_click(self) -> bool:
+        """The vendor app refuses to apply a mapping without any left-click button
+        (dialog "Force the next Key to click", VA 0x4161c0). Without one you may
+        not be able to click anything to undo the change."""
+        return any(self.buttons.get(n, DEFAULT_BUTTONS[n]) in ("left", FUNCTIONS["left"])
+                   for n in BUTTON_ORDER)
+
     def packets(self, length: int = DEFAULT_REPORT_LEN) -> List[bytes]:
         """Packet sequence in the same order as the vendor Apply routine."""
         if len(self.dpi_levels) != NUM_DPI_SLOTS:
@@ -326,7 +333,9 @@ def profile_from_vendor_ini(text: str, section: str = "Config1") -> Profile:
             cur = line[1:-1]
         elif cur == section and "=" in line:
             k, v = line.split("=", 1)
-            vals[k.strip()] = v.strip()
+            # Windows GetPrivateProfileString returns the FIRST occurrence; the vendor
+            # presets contain duplicates (e.g. [Config3] has K0=1 and later K0=0).
+            vals.setdefault(k.strip(), v.strip())
     if not vals:
         raise ValueError(f"section [{section}] not found")
     # vendor UI function list index -> our function names (others are host-side)
