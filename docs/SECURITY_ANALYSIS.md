@@ -52,6 +52,24 @@ from a profile setting is poor design.
 * It writes keyboard events *to the mouse* (`07 15`) so the mouse can type macros. This is how the vendor implements macros, not an exploit.
 * It reads only from the mouse's vendor HID collection, not from other devices.
 
+## Third-party code inside the vendor app
+
+I checked whether the vendor app contains any open-source (for example GPL) code. **It does not appear to.**
+
+* `Gaming Mouse 2.0.exe` was built with Visual C++ 2013 (linker 12.0), and MFC is linked in statically
+  (Microsoft's source paths `f:\dd\vctools\vc7libs\ship\atlmfc\...` are embedded).
+* It only imports Windows system DLLs: kernel32, user32, gdi32, gdiplus, hid, setupapi, shell32, ole32 and so on.
+  It does not import or embed libusb, hidapi, zlib, libpng/libjpeg or any other open-source library.
+* There are no GPL/GNU/"Free Software" or other open-source licence strings. The version resource says
+  `LegalCopyright = All Rights Reserved.`
+* The installer is a stock InstallShield 2015 package (proprietary), and the MSI contains only the app, skin images, INI files and macro `.dat` files.
+* Leftover build path: `E:\客户端驱动制作\A714_A814\Code_4.0(展士星日英)\Release\Gaming Mouse 2.0.pdb`.
+  It translates roughly as "client driver production\A714_A814". This suggests the app is a generic OEM tool
+  reused across models (A714/A814) and customers.
+
+So the project gets no leverage from licence obligations in the vendor app. It is based on
+interoperability and does not include any vendor code; see the README.
+
 ## Verdict
 The software is sloppy and over-privileged, and it has a keystroke-eating bug while recording,
 but nothing in it collects or transmits data. You still don't need it: everything it does is reproduced in this repository.
