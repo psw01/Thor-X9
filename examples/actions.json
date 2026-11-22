@@ -1,5 +1,12 @@
 {
-  "dpi_minus": {"consumer": "play_pause"},
-  "forward":   {"keys": ["0xE0", "0x06"]},
-  "back":      {"run": "xdg-open https://example.org"}
+  "dpi_minus": "f13",
+  "forward":   {"key": "ctrl+c"},
+  "back":      {"consumer": "play_pause"},
+  "dpi_plus":  {"macro": "greet", "repeat": 1},
+
+  "macros": {
+    "greet": ["type Hello from Thor X9!", "wait 100", "tap enter"],
+    "spam_click": ["click left", "wait 30"],
+    "copy_paste_below": ["tap ctrl+c", "tap down", "tap ctrl+v"]
+  }
 }

@@ -38,7 +38,7 @@ It then uses `HidP_GetCaps` to find the two vendor collections (VA `0x405ed0`).
 | `13` | `07 13 MM TT` | LED: `MM` = 7-bit mask of colours used in the cycle, `TT` = mode byte ✅ |
 | `09` | `07 09 AA DD EE` | DPI slot ✅: `AA = 0x40 \| active_slot`, `DD = (dpi_code<<4) \| 0x08 \| slot`, `EE` = 6-bit mask of enabled slots |
 | `14` | `07 14 SG RB` | DPI slot colour ✅: `SG = (slot<<5) \| G`, `RB = (R<<4) \| B`, 4 bits per channel |
-| `12` | `07 12 HH LL 00 00 00 00` | Rapid-fire interval: `FIRE_TIME/8` as big-endian u16 ✅ |
+| `12` | `07 12 HH LL 00 00 00 00` | Rapid-fire interval: `FIRE_TIME/8` as big-endian u16 ✅. UI range 0–300 ms, default 50 (VA `0x40cc0f`); probably 8 ms frames |
 | `15` | `07 15 k1 k2 k3 k4 k5 k6` | Mouse sends a keyboard report with these 6 key codes. All zero = release ✅ (structure), ❓ (code set; probably HID usage IDs, so modifiers would be `E0`–`E7`) |
 | `16` | `07 16 00 MM` | Mouse sends a mouse-button report. `MM` is **active-low** (bit clear = pressed), bits 0–2 ✅. Bit order 🟡 (probably HID order: left, right, middle). The vendor app leaves byte 2 uninitialised. |
 | `17` | `07 17 HH LL` | Mouse sends a Consumer Control usage `HHLL` ✅. The app never sends a release. |

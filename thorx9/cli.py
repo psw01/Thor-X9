@@ -5,12 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
-import subprocess
 import sys
-import time
 
 from . import protocol as P
+from .actions import Injector, load_actions
+from .keys import KEYS
 from .device import ANY_DEVICE_WARNING, Match, Mouse, find_hidraw
 
 CONFIG_PATH = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -168,47 +167,61 @@ def cmd_detach(a):
     return 0
 
 
-def _keys(spec):
-    return [int(k, 0) if isinstance(k, str) else int(k) for k in spec]
-
-
-def run_action(m: Mouse, action: dict):
-    """Host-side button actions, same mechanisms as the vendor app."""
-    if "consumer" in action:
-        u = action["consumer"]
-        m.send(P.inject_consumer(P.CONSUMER[u] if isinstance(u, str) else int(u)))
-    if "keys" in action:  # HID usage ids pressed together, then released
-        m.send(P.inject_keys(_keys(action["keys"])))
-        time.sleep(action.get("hold_ms", 20) / 1000)
-        m.send(P.inject_keys())
-    if "sequence" in action:  # [[usages...], delay_ms] steps
-        for step in action["sequence"]:
-            keys, delay = step if len(step) == 2 else (step[0], 20)
-            m.send(P.inject_keys(_keys(keys)))
-            time.sleep(max(delay, 15) / 1000)
-        m.send(P.inject_keys())
-    if "run" in action:
-        cmd = action["run"]
-        subprocess.Popen(cmd if isinstance(cmd, list) else shlex.split(cmd),
-                         start_new_session=True)
-
-
 def cmd_listen(a):
-    actions = {}
+    cfg = {}
     if a.actions:
         with open(a.actions) as f:
-            actions = json.load(f)
-    print("listening for host-handled buttons (set a button's function to 'host'); Ctrl-C to stop",
-          file=sys.stderr)
+            cfg = json.load(f)
+    for spec in a.map or []:
+        name, _, act = spec.partition("=")
+        cfg[name] = act
+    acts = load_actions(cfg)
+
+    p = load_profile(a.profile)
+    not_host = [b for b in acts if p.buttons.get(b) not in ("host", 0)]
+    if not_host and a.set_host:
+        for b in not_host:
+            p.buttons[b] = "host"
+        if not p.has_left_click():
+            raise SystemExit("refusing: that would leave no left-click button")
+        with open_mouse(a) as m:
+            m.send_all(p.packets())
+        if not a.dry_run:
+            save_profile(p, a.profile)
+        print(f"set {', '.join(not_host)} to 'host' and saved the profile", file=sys.stderr)
+    elif not_host:
+        print(f"note: {', '.join(not_host)} not set to 'host' in your saved profile, so the mouse "
+              f"won't report them. Add --set-host, or run: thorx9 apply "
+              + " ".join(f"--button {b}=host" for b in not_host) + " --save", file=sys.stderr)
+
+    print("listening for host-handled buttons; Ctrl-C to stop", file=sys.stderr)
     with open_mouse(a) as m:
+        inj = Injector(m)
         try:
             for ev in m.events():
-                state = f"pressed (dpi slot {ev.dpi_slot})" if ev.pressed else "released"
-                print(f"{ev.name} (hw id {ev.hw_id}) {state}", flush=True)
-                if ev.pressed and ev.name in actions:
-                    run_action(m, actions[ev.name])
+                if a.verbose or not acts:
+                    state = f"pressed (dpi slot {ev.dpi_slot})" if ev.pressed else "released"
+                    print(f"{ev.name} (hw id {ev.hw_id}) {state}", flush=True)
+                act = acts.get(ev.name)
+                if act:
+                    (act.press if ev.pressed else act.release)(inj)
         except KeyboardInterrupt:
             pass
+        finally:
+            for act in acts.values():
+                act._stop.set()
+            if not a.dry_run:
+                inj.release_all()
+    return 0
+
+
+def cmd_keys(a):
+    by_code = {}
+    for k, v in KEYS.items():
+        by_code.setdefault(v, []).append(k)
+    for code in sorted(by_code):
+        print(f"{code:#04x}  {' / '.join(by_code[code])}")
+    print("\nmedia (consumer): " + ", ".join(P.CONSUMER))
     return 0
 
 
@@ -336,9 +349,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("bytes", nargs="+")
     sp.set_defaults(fn=cmd_raw)
 
-    sp = sub.add_parser("listen", help="print host-button events and optionally run actions")
-    sp.add_argument("--actions", help="JSON mapping button name -> action")
+    sp = sub.add_parser("listen", help="run keys / macros / media keys for buttons set to 'host'")
+    sp.add_argument("--actions", help="JSON file: button name -> action (see examples/actions.json)")
+    sp.add_argument("--map", action="append", metavar="BUTTON=KEYS",
+                    help="quick key mapping, held while the button is held, e.g. dpi_minus=f13 or back=ctrl+c")
+    sp.add_argument("--set-host", action="store_true",
+                    help="switch the mapped buttons to 'host' on the mouse (and save the profile) first")
+    sp.add_argument("-p", "--profile", help="profile file (default: your saved one)")
     sp.set_defaults(fn=cmd_listen)
+
+    sub.add_parser("keys", help="list key names for --map / macros").set_defaults(fn=cmd_keys)
 
     sub.add_parser("detach", help="send 07 20 (vendor app does this on exit)").set_defaults(fn=cmd_detach)
     return ap

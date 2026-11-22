@@ -26,7 +26,7 @@ Device: USB `18f8:1086` (some units `18f8:0fc0`). Check with `lsusb | grep 18f8`
 | Remap 7 buttons: clicks, back/forward, DPI ±/loop, double click, rapid fire, show desktop, off | ✅ (in firmware) |
 | Wheel as volume control | ✅ |
 | Rapid-fire interval | ✅ |
-| Media keys, shortcuts, macros, launching programs | ✅ via `thorx9 listen` (this was host-side in the vendor app too) |
+| Any keyboard key (F13–F24, combos), media keys, macros, launching programs | ✅ via `thorx9 listen` (host-side, like the vendor app) |
 | Polling rate | ❌ not in the protocol (vendor app never sends it) |
 
 ## Linux quick start
@@ -84,26 +84,75 @@ Import your old Windows settings from the vendor `skins/config/config.ini`:
 thorx9 import-ini config.ini --section Config1 -o ~/.config/thorx9/profile.json
 ```
 
-### Host-side buttons: media keys, shortcuts, macros, launching programs
+### Any key (F13…F24, combos), media keys and macros
 
-Set a button's function to `host`. The mouse then reports its presses instead of acting on them, and
-`thorx9 listen` can react. Like the vendor app, it can make the **mouse itself** type keys or media keys,
-so this works under Wayland, X11 and in games:
+The firmware can only do clicks, back/forward, DPI, double click, fire, show desktop and off.
+**It cannot send keyboard keys on its own, and it has no macro memory.** The vendor app handled
+all of that on the PC, and so does `thorx9 listen`. The button's function is set to `host`. The
+mouse reports the press, and `thorx9` tells the **mouse itself** which key to send. The key
+therefore arrives from the mouse's own keyboard interface: no uinput, and it works under Wayland,
+X11 and in games. `listen` has to keep running for this. A systemd user service is in
+`examples/thorx9-listen.service`.
 
+F13 on the lower DPI button, held for as long as the button is held:
 ```bash
-thorx9 apply --button dpi_minus=host --save
+thorx9 listen --map dpi_minus=f13 --set-host
 ```
+`--set-host` switches the mapped buttons to `host` on the mouse and saves that to your profile. You only need it once.
+Several at once: `--map back=ctrl+c --map forward=f14`. List every key name with `thorx9 keys`.
+
+For anything more than single keys, use an actions file (see [`examples/actions.json`](examples/actions.json)):
 ```bash
-thorx9 listen --actions examples/actions.json
+thorx9 listen --actions examples/actions.json --set-host
+```
+```json
+{
+  "dpi_minus": "f13",
+  "forward":   {"key": "ctrl+c"},
+  "back":      {"consumer": "play_pause"},
+  "dpi_plus":  {"macro": "greet", "repeat": 1},
+  "macros": {
+    "greet": ["type Hello from Thor X9!", "wait 100", "tap enter"]
+  }
+}
 ```
 
-Action types in `actions.json`:
-* `{"consumer": "vol_up"}`: one of `browser player mail vol_up vol_down prev next mute play_pause calculator stop`, or a raw usage number.
-* `{"keys": ["0xE0", "0x06"]}`: press HID key usages together (here Ctrl+C), then release.
-* `{"sequence": [[["0x04"], 50], [["0x05"], 50]]}`: a simple macro: a list of `[keys, delay_ms]` steps.
-* `{"run": "command"}`: run a program.
+| Action | Behaviour |
+|---|---|
+| `"f13"` or `{"key": "ctrl+shift+f13"}` | Held down while the button is held |
+| `{"keys": "ctrl+c"}` | Tapped once on press (`hold_ms`, default 20) |
+| `{"consumer": "vol_up"}` | Media key: `browser player mail vol_up vol_down prev next mute play_pause calculator stop` or a number |
+| `{"macro": [...] or "name", "repeat": …}` | Macro (below) |
+| `{"run": "command"}` | Run a program |
 
-`thorx9 listen` with no actions just prints which physical button is which. Use it to identify buttons on your unit.
+**Macro steps:** `tap KEYS`, `down KEYS`, `up KEYS`, `wait MS`, `type TEXT` (US layout),
+`click left|right|middle`, `mdown BTN`, `mup BTN`, `consumer NAME`.
+`KEYS` are names joined with `+` (`ctrl+alt+t`, `f13`, `0x68`). Up to 6 keys can be held at once.
+
+**Repeat modes:** these match the vendor app's options.
+- a number: play that many times.
+- `"while_held"`: loop while the button is held ("Run till Release").
+- `"toggle"`: first press starts looping, next press stops.
+
+Optional `"gap_ms"` (default 20) sets the delay between key events. Delays below 15 ms are raised to 15 ms, as in the vendor player.
+Interrupted macros release every key, so nothing stays stuck.
+
+`thorx9 listen -v` prints every button event, which is handy for identifying which button is which.
+
+> The `07 15` key codes are standard HID usage IDs. That was inferred, not proven from the vendor code.
+> If a key comes out wrong, please open an issue.
+
+### What "fire" does
+
+`fire` is the vendor's "Fire" / 連打 (rapid fire) function. While you hold a button set to `fire`,
+the mouse itself clicks repeatedly, presumably left click, without needing the PC. It is the only "macro" that runs in firmware.
+The speed is `--fire-ms` (`fire_interval_ms` in profiles). The vendor slider ranges from 0 to 300 ms (default 50)
+and the value is sent divided by 8, so the firmware probably works in 8 ms steps (one USB frame at 125 Hz).
+```bash
+thorx9 apply --button forward=fire --fire-ms 40 --save
+```
+For other rapid-fire behaviour (right click, a key, a burst), use a macro with `"repeat": "while_held"`,
+e.g. `{"macro": ["click right", "wait 30"], "repeat": "while_held"}`.
 
 Raw experiments:
 ```bash

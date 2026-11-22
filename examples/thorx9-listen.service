@@ -1,0 +1,15 @@
+# Run `thorx9 listen` in the background for your user session.
+#   mkdir -p ~/.config/systemd/user ~/.config/thorx9
+#   cp examples/actions.json ~/.config/thorx9/actions.json
+#   cp examples/thorx9-listen.service ~/.config/systemd/user/
+#   systemctl --user enable --now thorx9-listen
+[Unit]
+Description=Thor X9 host-side buttons (keys, macros, media)
+
+[Service]
+ExecStart=%h/.local/bin/thorx9 listen --actions %h/.config/thorx9/actions.json
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
