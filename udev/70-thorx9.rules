@@ -1,0 +1,4 @@
+# FANTECH Thor X9 (VID 18f8, PID 1086 / 0fc0): let the logged-in user
+# access the hidraw nodes (CLI and WebHID in Chrome).
+KERNEL=="hidraw*", ATTRS{idVendor}=="18f8", ATTRS{idProduct}=="1086", MODE="0660", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="18f8", ATTRS{idProduct}=="0fc0", MODE="0660", TAG+="uaccess"

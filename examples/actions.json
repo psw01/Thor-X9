@@ -1,0 +1,5 @@
+{
+  "dpi_minus": {"consumer": "play_pause"},
+  "forward":   {"keys": ["0xE0", "0x06"]},
+  "back":      {"run": "xdg-open https://example.org"}
+}

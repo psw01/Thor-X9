@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thorx9"
+version = "0.1.0"
+description = "Open-source configuration tool for the FANTECH Thor X9 mouse"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+hidapi = ["hid"]
+
+[project.scripts]
+thorx9 = "thorx9.cli:main"
+
+[tool.setuptools]
+packages = ["thorx9"]

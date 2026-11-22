@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thor X9 WebHID</title>
+<style>
+  :root { --bg:#fff; --fg:#111; --muted:#666; --line:#ccc; --accent:#c00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --muted:#999; --line:#333; --accent:#f55; } }
+  body { background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; margin:0 auto; max-width:760px; padding:16px; }
+  h1 { font-size:1.3em; } h2 { font-size:1.05em; margin-top:1.6em; border-bottom:1px solid var(--line); }
+  table { border-collapse:collapse; width:100%; } td,th { padding:4px 6px; text-align:left; }
+  select,input,button,textarea { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:3px 6px; max-width:100%; }
+  button { cursor:pointer; } button.primary { border-color:var(--accent); }
+  #log { height:160px; overflow:auto; font:12px monospace; border:1px solid var(--line); padding:6px; white-space:pre-wrap; }
+  .muted { color:var(--muted); } .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
+</style>
+</head>
+<body>
+<h1>Thor X9 WebHID</h1>
+<p class="muted">Plain configurator for the FANTECH Thor X9 (VID 18f8). Needs Chrome/Edge (WebHID) over https or localhost.
+Linux: install <code>udev/70-thorx9.rules</code> first. Protocol: <code>docs/PROTOCOL.md</code>.</p>
+<div class="row"><button id="connect" class="primary">Connect</button><span id="status" class="muted">not connected</span></div>
+
+<h2>Buttons</h2>
+<table id="buttons"></table>
+
+<h2>DPI</h2>
+<table id="dpi"><tr><th>Slot</th><th>DPI</th><th>On</th><th>Colour</th><th>Active</th></tr></table>
+
+<h2>LED / wheel / fire</h2>
+<div class="row">LED <select id="ledMode"><option>fixed</option><option selected>cyclic</option><option>static</option><option>off</option></select>
+cycle <select id="ledSec"></select> s
+colour mask <input id="ledMask" value="0x7f" size="5"></div>
+<div class="row">Wheel <select id="wheel"><option>scroll</option><option>volume</option></select>
+Fire interval <input id="fire" type="number" value="50" min="8" step="8" style="width:6em"> ms</div>
+
+<div class="row"><button id="apply" class="primary">Apply to mouse</button>
+<button id="export">Export JSON</button><button id="import">Import JSON</button></div>
+<textarea id="json" rows="5" style="width:100%" placeholder="profile JSON (same format as the Python CLI)"></textarea>
+
+<h2>Raw</h2>
+<div class="row"><input id="raw" value="07 13 7f 86" size="30"><button id="sendRaw">Send feature report</button></div>
+<div id="log"></div>
+
+<script>
+const VID = 0x18f8, PIDS = [0x1086, 0x0fc0];
+const BUTTONS = {left:1, middle:2, right:3, forward:5, back:4, dpi_plus:8, dpi_minus:6};
+const FUNCS = {host:0, left:1, middle:2, right:3, back:4, forward:5, dpi_loop:6, show_desktop:7,
+  double_click:8, fire:9, off:10, dpi_up:11, dpi_down:12};
+const DEFAULT_BTN = {left:"left", middle:"middle", right:"right", forward:"forward", back:"back", dpi_plus:"dpi_up", dpi_minus:"dpi_down"};
+const DPI_STEPS = [200,400,600,800,1000,1200,1600,2000,2400,3200,4000,4800];
+const DPI_CODES = [1,2,3,4,5,6,7,9,11,13,14,15];
+const DEF_DPI = [[600,"#0000ff"],[1000,"#ffff00"],[1200,"#00ff00"],[2000,"#ff00ff"],[3200,"#00ffff"],[4800,"#ff0000"]];
+const $ = id => document.getElementById(id);
+let dev = null, featLen = 8;
+
+function log(s) { const l = $("log"); l.textContent += s + "\n"; l.scrollTop = l.scrollHeight; }
+
+// ---- build form ----
+for (const b of Object.keys(BUTTONS)) {
+  const opts = Object.keys(FUNCS).map(f => `<option ${f===DEFAULT_BTN[b]?"selected":""}>${f}</option>`).join("");
+  $("buttons").insertAdjacentHTML("beforeend", `<tr><td>${b}</td><td><select data-btn="${b}">${opts}</select></td></tr>`);
+}
+DEF_DPI.forEach(([d, c], i) => {
+  const opts = DPI_STEPS.map(s => `<option ${s===d?"selected":""}>${s}</option>`).join("");
+  $("dpi").insertAdjacentHTML("beforeend", `<tr><td>${i+1}</td><td><select data-dpi="${i}">${opts}</select></td>
+    <td><input type="checkbox" data-en="${i}" checked></td><td><input type="color" data-col="${i}" value="${c}"></td>
+    <td><input type="radio" name="active" value="${i}" ${i===1?"checked":""}></td></tr>`);
+});
+for (let s = 1; s <= 6; s++) $("ledSec").insertAdjacentHTML("beforeend", `<option ${s===4?"selected":""}>${s}</option>`);
+
+// ---- profile <-> form ----
+function readForm() {
+  const p = {buttons:{}, dpi:{levels:[]}, led:{}};
+  document.querySelectorAll("[data-btn]").forEach(s => p.buttons[s.dataset.btn] = s.value);
+  for (let i = 0; i < 6; i++) p.dpi.levels.push({
+    dpi: +document.querySelector(`[data-dpi="${i}"]`).value,
+    enabled: document.querySelector(`[data-en="${i}"]`).checked,
+    color: document.querySelector(`[data-col="${i}"]`).value });
+  p.dpi.active = +document.querySelector("input[name=active]:checked").value;
+  p.led = {mode: $("ledMode").value, cycle_seconds: +$("ledSec").value, cycle_mask: parseInt($("ledMask").value) & 0x7f};
+  p.wheel = $("wheel").value;
+  p.fire_interval_ms = +$("fire").value;
+  return p;
+}
+function hex6(c) { if (Array.isArray(c)) return "#" + c.map(v => (v*17).toString(16).padStart(2,"0")).join("");
+  c = c.replace("#",""); if (c.length === 3) c = [...c].map(x => x+x).join(""); return "#" + c; }
+function writeForm(p) {
+  for (const [b, f] of Object.entries(p.buttons || {})) { const s = document.querySelector(`[data-btn="${b}"]`); if (s) s.value = f; }
+  (p.dpi?.levels || []).forEach((l, i) => {
+    document.querySelector(`[data-dpi="${i}"]`).value = l.dpi;
+    document.querySelector(`[data-en="${i}"]`).checked = l.enabled !== false;
+    document.querySelector(`[data-col="${i}"]`).value = hex6(l.color || "#fff");
+  });
+  if (p.dpi?.active != null) document.querySelector(`input[name=active][value="${p.dpi.active}"]`).checked = true;
+  if (p.led) { $("ledMode").value = p.led.mode; $("ledSec").value = p.led.cycle_seconds; $("ledMask").value = "0x" + (p.led.cycle_mask ?? 127).toString(16); }
+  if (p.wheel) $("wheel").value = p.wheel;
+  if (p.fire_interval_ms) $("fire").value = p.fire_interval_ms;
+}
+
+// ---- protocol (mirrors thorx9/protocol.py) ----
+function packets(p) {
+  const out = [], nib = c => { c = hex6(c).slice(1); return [0,2,4].map(i => parseInt(c.substr(i,2),16) >> 4); };
+  for (const b of ["left","middle","right","forward","back","dpi_plus","dpi_minus"]) out.push([0x10, BUTTONS[b], FUNCS[p.buttons[b]]]);
+  out.push([0x11, p.wheel === "volume" ? 1 : 0, 0]);
+  const m = {fixed:0, cyclic:1, static:2, off:3}[p.led.mode], spd = 6 - p.led.cycle_seconds;
+  out.push([0x13, p.led.cycle_mask, m === 2 ? 0x86 : m === 3 ? 0x87 : ((8 + m) << 4) | spd]);
+  const mask = p.dpi.levels.reduce((a, l, i) => a | (l.enabled ? 1 << i : 0), 0);
+  p.dpi.levels.forEach((l, i) => {
+    const code = DPI_CODES[DPI_STEPS.indexOf(l.dpi)], [r, g, b] = nib(l.color);
+    out.push([0x09, 0x40 | p.dpi.active, (code << 4) | 8 | i, mask]);
+    out.push([0x14, (i << 5) | g, (r << 4) | b]);
+  });
+  const f = Math.floor(p.fire_interval_ms / 8);
+  out.push([0x12, f >> 8, f & 0xff, 0, 0, 0, 0]);
+  return out;
+}
+async function sendFeature(body) {  // body excludes the report id (0x07)
+  const data = new Uint8Array(featLen - 1); data.set(body.slice(0, featLen - 1));
+  log("-> 07 " + [...data].map(x => x.toString(16).padStart(2, "0")).join(" "));
+  await dev.sendFeatureReport(0x07, data);
+}
+
+// ---- device ----
+async function connect() {
+  const devs = await navigator.hid.requestDevice({filters: PIDS.flatMap(productId => [
+    {vendorId: VID, productId, usagePage: 0xff01}, {vendorId: VID, productId, usagePage: 0xff00}])});
+  if (!devs.length) return;
+  // the browser may hand out one HIDDevice per interface; pick the one with feature report 7
+  dev = devs.find(d => d.collections.some(c => c.featureReports?.some(r => r.reportId === 7))) || devs[0];
+  if (!dev.opened) await dev.open();
+  for (const c of dev.collections) for (const r of c.featureReports || []) if (r.reportId === 7) {
+    const bits = r.items.reduce((a, it) => a + it.reportSize * it.reportCount, 0);
+    featLen = Math.ceil(bits / 8) + 1;
+  }
+  for (const d of devs) {
+    if (!d.opened) await d.open();
+    d.addEventListener("inputreport", e => {
+      if (e.reportId !== 6) return;
+      const v = new Uint8Array(e.data.buffer), id = v[0] - 0xf0;
+      const name = Object.keys(BUTTONS).find(k => BUTTONS[k] === id) || "button" + id;
+      log(`<- ${name} ${v[1] === 0x80 ? "released" : "pressed (dpi slot " + v[1] + ")"}`);
+    });
+  }
+  $("status").textContent = `${dev.productName || "Thor X9"} (feature report ${featLen} bytes)`;
+}
+
+if (!("hid" in navigator)) $("status").textContent = "WebHID not available in this browser";
+$("connect").onclick = () => connect().catch(e => log("error: " + e.message));
+$("apply").onclick = async () => {
+  if (!dev) return log("connect first");
+  try { for (const p of packets(readForm())) await sendFeature(p); log("applied"); }
+  catch (e) { log("error: " + e.message); }
+};
+$("sendRaw").onclick = async () => {
+  if (!dev) return log("connect first");
+  const b = $("raw").value.trim().split(/\s+/).map(x => parseInt(x, 16));
+  if (b[0] !== 7) return log("report id must be 07");
+  sendFeature(b.slice(1)).catch(e => log("error: " + e.message));
+};
+$("export").onclick = () => $("json").value = JSON.stringify(readForm(), null, 2);
+$("import").onclick = () => { try { writeForm(JSON.parse($("json").value)); log("imported"); } catch (e) { log("bad JSON: " + e.message); } };
+</script>
+</body>
+</html>
