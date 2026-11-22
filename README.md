@@ -4,7 +4,7 @@ FANTECH ships the Thor X9 with a Windows-only, admin-only configuration app.
 This repository has:
 
 * **`thorx9`**: a dependency-free Python CLI/library for Linux (macOS/Windows via `hidapi`)
-* **`web/index.html`**: a WebHID page that configures the mouse from Chrome/Edge on any OS
+* **`web/index.html`**: a WebHID page that configures the mouse from Chrome/Edge on any OS. **Live at <https://psw01.github.io/Thor-X9/>**
 * **[docs/PROTOCOL.md](docs/PROTOCOL.md)**: the full USB protocol, with the vendor-binary address each fact came from
 * **[docs/SECURITY_ANALYSIS.md](docs/SECURITY_ANALYSIS.md)**: what the vendor app actually does (no evidence of spyware, but sloppy and over-privileged)
 * **[docs/HIDDEN_FEATURES.md](docs/HIDDEN_FEATURES.md)**: leftovers, hidden functions, and untested firmware values you can probe with `thorx9 explore`
@@ -192,13 +192,16 @@ Browsers still hide protected keyboard/mouse collections, so only devices with v
 
 ## WebHID (browser)
 
-Serve the `web/` directory over https or localhost:
+The easiest way: open **<https://psw01.github.io/Thor-X9/>** in Chrome or Edge and click **Connect**.
+On Linux, install the udev rule first.
+
+To run it locally instead, serve the `web/` directory over https or localhost:
 ```bash
 python3 -m http.server -d web 8000
 ```
 Then open <http://localhost:8000> in Chrome or Edge and click **Connect**.
 On Linux, install the udev rule first.
-Profiles export and import as the same JSON the CLI uses. You can also host the page on GitHub Pages.
+Profiles export and import as the same JSON the CLI uses. Forks can publish their own copy: Settings → Pages → Source *GitHub Actions* (workflow in `.github/workflows/pages.yml`).
 
 **Why WebHID and not WebUSB?** Browsers refuse to let WebUSB claim HID-class interfaces,
 and the mouse only has HID interfaces. WebHID does allow the vendor-defined collections
