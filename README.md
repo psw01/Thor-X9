@@ -10,9 +10,16 @@ This repository has:
 * **[docs/HIDDEN_FEATURES.md](docs/HIDDEN_FEATURES.md)**: leftovers, hidden functions, and untested firmware values you can probe with `thorx9 explore`
 * **[docs/REVERSING.md](docs/REVERSING.md)**: how to reproduce the analysis
 
-> ⚠️ **Status: protocol recovered by static analysis, not yet tested on hardware.**
-> The packets match the vendor app's logic byte for byte, but if you own the mouse,
-> please report what works (or doesn't) in an issue. Results from `thorx9 list` are especially useful.
+> 🤖 **Vibe-coded disclaimer.** This project was built with an AI coding assistant: the vendor
+> app was reverse-engineered, and the code and docs were written, in a few chat sessions. A human
+> reviewed it and it works on the author's mouse, but it has not been audited line by line.
+> Read the code before trusting it, and expect rough edges. No warranty (see [LICENSE](LICENSE)).
+
+> ✅ **Status: v0.1.0, first release.** The protocol was recovered by static analysis and
+> confirmed working on a real Thor X9 (DPI, LEDs, button remapping). Some parts are still
+> unverified on hardware: key codes for `listen`, which button `fire` clicks, and the values listed in
+> [docs/HIDDEN_FEATURES.md](docs/HIDDEN_FEATURES.md). Please report what works or doesn't
+> in an issue; output from `thorx9 list` is especially useful.
 
 Device: USB `18f8:1086` (some units `18f8:0fc0`). Check with `lsusb | grep 18f8`.
 
