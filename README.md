@@ -230,7 +230,39 @@ python3 -m unittest -v
 
 The tests check every packet against sequences worked out by hand from the vendor disassembly.
 
+## Vendor software analysed
+
+All findings come from this one installer (static analysis only; it was never run).
+It is **not** included in this repo. Use the hashes to check that you have the same build:
+
+| File | Size (bytes) | SHA-256 |
+|---|---|---|
+| `Thor_X9_Software_V1.0_19122000.exe` (installer, as downloaded) | 4,134,533 | `6cba95aedb4512f64fc961543774c6f9cc189d8cf06e1110c57233048cfe93fe` |
+| `FANTECH X9 Gaming Mouse.msi` (inside the installer) | 3,534,336 | `e2081c8b9c5557a27c316808d26a20b6f83b0f746b1e89a7b1ee149c731d0ab0` |
+| `Gaming Mouse 2.0.exe` (the app, inside the MSI) | 2,183,680 | `727d6377b1fbe2221033c52f8f3dafb971c754b3bbd9024cb3bd970749d37154` |
+
+Installer MD5 `a658463e49d86fabfa7b522212bd817d`, SHA-1 `bd9f439a171c9bd28088c6cd50d3c5d4a69c54ef`.
+A different vendor build may use a different protocol.
+
+## Licenses and third-party code
+
+Everything in this repository is original code under the [MIT license](LICENSE).
+**No GPL (or other copyleft) code is included or required.**
+
+| Component | Used by | License | Bundled? |
+|---|---|---|---|
+| Python standard library | `thorx9` | PSF | no (part of Python) |
+| [`hid`](https://pypi.org/project/hid/) | `thorx9`, optional, only for non-Linux (`pip install ".[hidapi]"`) | MIT | no |
+| [hidapi](https://github.com/libusb/hidapi) C library | loaded by `hid` | your choice of BSD-3, GPLv3 or the original hidapi license | no |
+| [`pefile`](https://pypi.org/project/pefile/) | `tools/isx_extract.py` only | MIT | no |
+| GitHub Actions (`actions/checkout`, `configure-pages`, `upload-pages-artifact`, `deploy-pages`) | Pages workflow | MIT | no |
+
+The web page uses no external scripts, fonts or libraries.
+
+Tools used during the analysis (not part of this repo, not needed to use it): capstone (BSD-3),
+pefile (MIT), msitools (GPL/LGPL; used only as a standalone program to unpack the MSI, so nothing GPL ends up in this repo).
+
 ## Legal
 
 This is an independent interoperability project and is not affiliated with FANTECH.
-No vendor code or assets are included. MIT licensed.
+No vendor code or assets are included; the hashes above only identify the file that was analysed. MIT licensed.
