@@ -15,11 +15,10 @@ This repository has:
 > reviewed it and it works on the author's mouse, but it has not been audited line by line.
 > Read the code before trusting it, and expect rough edges. No warranty (see [LICENSE](LICENSE)).
 
-> ✅ **Status: v0.1.0, first release.** The protocol was recovered by static analysis and
-> confirmed working on a real Thor X9 (DPI, LEDs, button remapping). Some parts are still
-> unverified on hardware: key codes for `listen`, which button `fire` clicks, and the values listed in
-> [docs/HIDDEN_FEATURES.md](docs/HIDDEN_FEATURES.md). Please report what works or doesn't
-> in an issue; output from `thorx9 list` is especially useful.
+> ✅ **Status: v0.1.0, first release.** The protocol was recovered by static analysis, and the
+> author has tested most features on a real Thor X9, which all worked. Items marked ❓ in
+> [docs/PROTOCOL.md](docs/PROTOCOL.md) and the probe values in [docs/HIDDEN_FEATURES.md](docs/HIDDEN_FEATURES.md)
+> are still unconfirmed. Please report what works or doesn't in an issue; output from `thorx9 list` is especially useful.
 
 Device: USB `18f8:1086` (some units `18f8:0fc0`). Check with `lsusb | grep 18f8`.
 

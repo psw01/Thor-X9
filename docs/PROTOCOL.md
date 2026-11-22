@@ -7,7 +7,7 @@ so anyone can check them in a disassembler.
 
 **Confidence labels:**
 ✅ read directly from the code; 🟡 inferred from naming or context; ❓ not yet tested on hardware.
-Core settings (DPI, LED, button remapping) have been confirmed on a real mouse; items marked ❓ are still untested. Please open an issue with your results.
+Most features have been tested on a real mouse and work; items marked ❓ are still unconfirmed. Please open an issue with your results.
 
 ## Device
 
