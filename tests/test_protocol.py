@@ -100,6 +100,18 @@ class ProtocolTest(unittest.TestCase):
         p = P.profile_from_vendor_ini(CONFIG1 + "K0=0\n", "Config1")
         self.assertEqual(p.buttons["left"], "left")
 
+    def test_device_match(self):
+        from thorx9.device import Match
+        thor = Match()
+        self.assertTrue(thor(0x18F8, 0x1086) and thor(0x18F8, 0x0FC0))
+        self.assertFalse(thor(0x046D, 0xC077))
+        self.assertTrue(Match.parse(any_device=True)(0x046D, 0xC077))
+        m = Match.parse(usb_id="046d:c077")
+        self.assertTrue(m(0x046D, 0xC077) and not m(0x046D, 0xC078) and not m.is_thor)
+        self.assertTrue(Match.parse(usb_id="046d")(0x046D, 0x1234))
+        with self.assertRaises(SystemExit):
+            Match.parse(usb_id="zz")
+
     def test_left_click_guard(self):
         p = P.Profile()
         self.assertTrue(p.has_left_click())

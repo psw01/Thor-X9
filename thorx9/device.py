@@ -100,6 +100,7 @@ class HidrawNode:
     vid: int
     pid: int
     info: DescriptorInfo
+    name: str = ""
 
     @property
     def cmd_len(self) -> Optional[int]:
@@ -110,33 +111,75 @@ class HidrawNode:
         return P.REPORT_ID_EVENT in self.info.input
 
 
-def find_hidraw() -> List[HidrawNode]:
+ANY_DEVICE_WARNING = (
+    "WARNING: any-device mode. This tool only knows the FANTECH Thor X9 protocol; on other\n"
+    "devices it may not work at all, may do nothing, or may change settings in unexpected ways.\n"
+    "Use at your own risk.")
+
+
+@dataclass
+class Match:
+    """Which devices to talk to. Default: only the Thor X9."""
+    any_device: bool = False
+    vid: Optional[int] = None
+    pid: Optional[int] = None
+
+    def __call__(self, vid: int, pid: int) -> bool:
+        if self.vid is not None:
+            return vid == self.vid and (self.pid is None or pid == self.pid)
+        if self.any_device:
+            return True
+        return vid == P.VENDOR_ID and pid in P.PRODUCT_IDS
+
+    @property
+    def is_thor(self) -> bool:
+        return not self.any_device and self.vid is None
+
+    @classmethod
+    def parse(cls, any_device: bool = False, usb_id: Optional[str] = None) -> "Match":
+        if not usb_id:
+            return cls(any_device)
+        v, _, p = usb_id.partition(":")
+        try:
+            return cls(True, int(v, 16), int(p, 16) if p else None)
+        except ValueError:
+            raise SystemExit(f"bad --usb-id {usb_id!r}; expected VID:PID in hex, e.g. 046d:c077")
+
+
+def _node_from_sysfs(sysdir: str) -> Optional[HidrawNode]:
+    try:
+        uevent = open(os.path.join(sysdir, "device", "uevent")).read()
+    except OSError:
+        return None
+    hid_id = next((l.split("=", 1)[1] for l in uevent.splitlines() if l.startswith("HID_ID=")), None)
+    if not hid_id:
+        return None
+    _bus, vid, pid = (int(x, 16) for x in hid_id.split(":"))
+    name = next((l.split("=", 1)[1] for l in uevent.splitlines() if l.startswith("HID_NAME=")), "")
+    try:
+        desc = open(os.path.join(sysdir, "device", "report_descriptor"), "rb").read()
+    except OSError:
+        desc = b""
+    return HidrawNode("/dev/" + os.path.basename(sysdir), vid, pid,
+                      parse_report_descriptor(desc), name)
+
+
+def find_hidraw(match: Optional[Match] = None) -> List[HidrawNode]:
+    match = match or Match()
     nodes = []
     for sysdir in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
-        try:
-            uevent = open(os.path.join(sysdir, "device", "uevent")).read()
-        except OSError:
-            continue
-        hid_id = next((l.split("=", 1)[1] for l in uevent.splitlines() if l.startswith("HID_ID=")), None)
-        if not hid_id:
-            continue
-        _bus, vid, pid = (int(x, 16) for x in hid_id.split(":"))
-        if vid != P.VENDOR_ID or pid not in P.PRODUCT_IDS:
-            continue
-        try:
-            desc = open(os.path.join(sysdir, "device", "report_descriptor"), "rb").read()
-        except OSError:
-            desc = b""
-        nodes.append(HidrawNode("/dev/" + os.path.basename(sysdir), vid, pid,
-                                parse_report_descriptor(desc)))
+        n = _node_from_sysfs(sysdir)
+        if n and match(n.vid, n.pid):
+            nodes.append(n)
     return nodes
 
 
 class Mouse:
-    """Open handle to the Thor X9 vendor interface."""
+    """Open handle to the Thor X9 vendor interface (or, in any-device mode, any HID device)."""
 
     def __init__(self, path: Optional[str] = None, report_len: Optional[int] = None,
-                 dry_run: bool = False, verbose: bool = False):
+                 dry_run: bool = False, verbose: bool = False, match: Optional[Match] = None):
+        self.match = match = match or Match()
         self.dry_run = dry_run
         self.verbose = verbose
         self.fd = None
@@ -146,10 +189,21 @@ class Mouse:
         if dry_run:
             return
         if path:
+            node = _node_from_sysfs("/sys/class/hidraw/" + os.path.basename(path)) if fcntl else None
+            if node and node.cmd_len and not report_len:
+                self.report_len = node.cmd_len
             self.fd = os.open(path, os.O_RDWR)
             self.event_fd = self.fd
             return
-        nodes = find_hidraw() if fcntl else []
+        nodes = find_hidraw(match) if fcntl else []
+        if nodes and not match.is_thor:
+            with_cmd = [n for n in nodes if n.cmd_len]
+            if len(with_cmd) == 1:
+                nodes = with_cmd
+            elif len({n.path for n in nodes}) > 1:
+                listing = "\n".join(f"  {n.path}  {n.vid:04x}:{n.pid:04x}  {n.name}" for n in nodes)
+                raise SystemExit("several matching devices; pick one with --device or --usb-id:\n"
+                                 + listing)
         if nodes:
             cmd = next((n for n in nodes if n.cmd_len), nodes[0])
             ev = next((n for n in nodes if n.has_events), cmd)
@@ -164,13 +218,19 @@ class Mouse:
         try:
             import hid  # type: ignore
         except ImportError:
-            raise SystemExit("No Thor X9 found via hidraw, and the 'hid' (hidapi) "
+            raise SystemExit("No matching device found via hidraw, and the 'hid' (hidapi) "
                              "package is not installed.")
-        devs = [d for d in hid.enumerate(P.VENDOR_ID, 0) if d["product_id"] in P.PRODUCT_IDS]
+        devs = [d for d in hid.enumerate(0, 0) if self.match(d["vendor_id"], d["product_id"])]
         out = next((d for d in devs if d.get("usage_page") == P.USAGE_PAGE_OUT), None)
         inp = next((d for d in devs if d.get("usage_page") == P.USAGE_PAGE_IN), None)
+        if not out and not self.match.is_thor:
+            ids = {(d["vendor_id"], d["product_id"]) for d in devs}
+            if len(ids) > 1:
+                raise SystemExit("several matching devices; pick one with --usb-id VID:PID")
+            out = next(iter(devs), None)
         if not out:
-            raise SystemExit("Thor X9 not found (VID 18f8, PID 1086/0fc0).")
+            raise SystemExit("Thor X9 not found (VID 18f8, PID 1086/0fc0)." if self.match.is_thor
+                             else "no matching HID device found")
         self._hidapi = hid.device()
         self._hidapi.open_path(out["path"])
         self._hidapi_in = None

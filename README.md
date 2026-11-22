@@ -117,6 +117,24 @@ thorx9 explore led --from 0x88 --to 0xbf
 
 `apply` refuses a mapping where no button is left click, the same safety net as the vendor app. Pass `--force` to override.
 
+## Other devices (experimental)
+
+> ⚠️ **May not work.** The tools only speak the Thor X9 protocol. This is useful for rebadged
+> siblings that share the same chip or firmware (other `18f8:*` mice, for example). On anything
+> else it may do nothing, or may change settings in unexpected ways.
+
+CLI: `--any-device` lifts the VID/PID check, and `--usb-id VID:PID` picks a specific device (it implies `--any-device`):
+```bash
+thorx9 --any-device list
+```
+```bash
+thorx9 --usb-id 18f8:0fd0 --dry-run apply --led off
+```
+If several devices match, pass `--device /dev/hidrawN`. You'll still need a udev rule granting access to that device.
+
+Web: tick **Allow any HID device** before clicking Connect, and the browser will list every HID device.
+Browsers still hide protected keyboard/mouse collections, so only devices with vendor-defined collections will respond.
+
 ## WebHID (browser)
 
 Serve the `web/` directory over https or localhost:

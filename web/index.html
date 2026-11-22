@@ -13,7 +13,7 @@
   select,input,button,textarea { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:3px 6px; max-width:100%; }
   button { cursor:pointer; } button.primary { border-color:var(--accent); }
   #log { height:160px; overflow:auto; font:12px monospace; border:1px solid var(--line); padding:6px; white-space:pre-wrap; }
-  .muted { color:var(--muted); } .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
+  .muted { color:var(--muted); } .warn { color:var(--accent); border:1px solid var(--accent); border-radius:4px; padding:6px 8px; } .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
 </style>
 </head>
 <body>
@@ -21,6 +21,9 @@
 <p class="muted">Plain configurator for the FANTECH Thor X9 (VID 18f8). Needs Chrome/Edge (WebHID) over https or localhost.
 Linux: install <code>udev/70-thorx9.rules</code> first. Protocol: <code>docs/PROTOCOL.md</code>.</p>
 <div class="row"><button id="connect" class="primary">Connect</button><span id="status" class="muted">not connected</span></div>
+<div class="row"><label><input type="checkbox" id="anyDev"> Allow any HID device</label></div>
+<p id="anyWarn" class="warn" hidden>⚠️ Any-device mode: this page only knows the Thor X9 protocol. On other devices it
+<b>may not work</b>, may do nothing, or may change settings in unexpected ways. Use at your own risk.</p>
 
 <h2>Buttons</h2>
 <table id="buttons"></table>
@@ -124,9 +127,14 @@ async function sendFeature(body) {  // body excludes the report id (0x07)
 
 // ---- device ----
 async function connect() {
-  const devs = await navigator.hid.requestDevice({filters: PIDS.flatMap(productId => [
-    {vendorId: VID, productId, usagePage: 0xff01}, {vendorId: VID, productId, usagePage: 0xff00}])});
+  const any = $("anyDev").checked;
+  // empty filter list = the browser shows every HID device it is allowed to expose
+  const filters = any ? [] : PIDS.flatMap(productId => [
+    {vendorId: VID, productId, usagePage: 0xff01}, {vendorId: VID, productId, usagePage: 0xff00}]);
+  const devs = await navigator.hid.requestDevice({filters});
   if (!devs.length) return;
+  const isThor = devs.every(d => d.vendorId === VID && PIDS.includes(d.productId));
+  if (!isThor) log("WARNING: not a Thor X9 - this may not work, and may change the device in unexpected ways.");
   // the browser may hand out one HIDDevice per interface; pick the one with feature report 7
   dev = devs.find(d => d.collections.some(c => c.featureReports?.some(r => r.reportId === 7))) || devs[0];
   if (!dev.opened) await dev.open();
@@ -143,8 +151,16 @@ async function connect() {
       log(`<- ${name} ${v[1] === 0x80 ? "released" : "pressed (dpi slot " + v[1] + ")"}`);
     });
   }
-  $("status").textContent = `${dev.productName || "Thor X9"} (feature report ${featLen} bytes)`;
+  const hasCmd = dev.collections.some(c => c.featureReports?.some(r => r.reportId === 7));
+  if (!hasCmd) log("note: device declares no feature report 7; sending anyway with 8-byte reports");
+  const id = `${dev.vendorId.toString(16).padStart(4, "0")}:${dev.productId.toString(16).padStart(4, "0")}`;
+  $("status").textContent = `${dev.productName || "HID device"} ${id} (feature report ${featLen} bytes)${isThor ? "" : " - UNSUPPORTED"}`;
 }
+$("anyDev").onchange = () => {
+  $("anyWarn").hidden = !$("anyDev").checked;
+  if ($("anyDev").checked && !confirm("Any-device mode only knows the Thor X9 protocol. It may not work on other devices, " +
+      "and may change their settings in unexpected ways. Continue?")) { $("anyDev").checked = false; $("anyWarn").hidden = true; }
+};
 
 if (!("hid" in navigator)) $("status").textContent = "WebHID not available in this browser";
 $("connect").onclick = () => connect().catch(e => log("error: " + e.message));

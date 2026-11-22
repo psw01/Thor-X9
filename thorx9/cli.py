@@ -11,7 +11,7 @@ import sys
 import time
 
 from . import protocol as P
-from .device import Mouse, find_hidraw
+from .device import ANY_DEVICE_WARNING, Match, Mouse, find_hidraw
 
 CONFIG_PATH = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                            "thorx9", "profile.json")
@@ -83,23 +83,41 @@ def apply_overrides(p: P.Profile, a) -> P.Profile:
     return p
 
 
+_warned = False
+
+
+def device_match(a) -> Match:
+    global _warned
+    m = Match.parse(a.any_device, a.usb_id)
+    if (not m.is_thor or (a.device and not a.dry_run and not _is_thor_path(a.device))) and not _warned:
+        print(ANY_DEVICE_WARNING, file=sys.stderr)
+        _warned = True
+    return m
+
+
+def _is_thor_path(path) -> bool:
+    return any(n.path == path for n in find_hidraw())
+
+
 def open_mouse(a) -> Mouse:
-    return Mouse(a.device, a.report_len, a.dry_run, a.verbose)
+    return Mouse(a.device, a.report_len, a.dry_run, a.verbose, device_match(a))
 
 
 # --- commands ------------------------------------------------------------
 
 def cmd_list(a):
-    nodes = find_hidraw()
+    match = device_match(a)
+    nodes = find_hidraw(match)
     if not nodes:
-        print("no Thor X9 hidraw nodes found (VID 18f8, PID 1086/0fc0)")
+        print("no Thor X9 hidraw nodes found (VID 18f8, PID 1086/0fc0)" if match.is_thor
+              else "no matching hidraw nodes found")
         return 1
     for n in nodes:
         pages = ",".join(f"{x:04x}" for x in n.info.top_pages)
         feat = {f"{k:#04x}": v for k, v in n.info.feature.items()}
         inp = {f"{k:#04x}": v for k, v in n.info.input.items()}
         ok = os.access(n.path, os.R_OK | os.W_OK)
-        print(f"{n.path}  {n.vid:04x}:{n.pid:04x}  usage pages [{pages}]  "
+        print(f"{n.path}  {n.vid:04x}:{n.pid:04x}  {n.name}  usage pages [{pages}]  "
               f"feature {feat}  input {inp}  {'rw' if ok else 'NO ACCESS (see udev/)'}")
     return 0
 
@@ -265,6 +283,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="thorx9", description="Configure the FANTECH Thor X9 mouse.")
     ap.add_argument("--device", help="hidraw node to use (default: auto-detect)")
     ap.add_argument("--report-len", type=int, help="override feature report length")
+    ap.add_argument("--any-device", action="store_true",
+                    help="allow any HID device, not just the Thor X9 (MAY NOT WORK, use at your own risk)")
+    ap.add_argument("--usb-id", metavar="VID:PID",
+                    help="target a specific device, e.g. 18f8:1086 (implies --any-device)")
     ap.add_argument("-n", "--dry-run", action="store_true", help="print reports, don't send")
     ap.add_argument("-v", "--verbose", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
